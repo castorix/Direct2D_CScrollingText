@@ -62,7 +62,7 @@ LRESULT CALLBACK CScrollingText::WndProcStatic(HWND hWnd, UINT uMsg, WPARAM wPar
 		CREATESTRUCT* pCS = (CREATESTRUCT*)lParam;
 		CScrollingText* pST = (CScrollingText*)pCS->lpCreateParams;
 		//SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG)pCS->lpCreateParams);
-		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG)pST);
+		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pST);
 		return 1;
 	}
 	case WM_PAINT:
