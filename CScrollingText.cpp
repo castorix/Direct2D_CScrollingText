@@ -1,4 +1,5 @@
 #include "CScrollingText.h"
+#include <thread>
 
 static WNDPROC m_OldWndProc;
 
@@ -40,8 +41,20 @@ void CScrollingText::Initialize(ID2D1Factory1* pD2DFactory1, IDWriteFactory* pDW
 	hr = CreateDeviceResources();
 	hr = CreateSwapChain(m_hStatic);
 	if (SUCCEEDED(hr))
+	{
 		hr = ConfigureSwapChain();
-	SetTimer(m_hStatic, 1, 15, NULL);
+		m_bRunning = true;
+		std::thread([this]()
+			{
+				while (m_bRunning)
+				{
+					// Wait until DXGI signals next frame is ready to render
+					WaitForSingleObjectEx(m_hFrameLatencyWaitable, INFINITE, TRUE);
+					InvalidateRect(m_hStatic, nullptr, FALSE);
+				}
+			}).detach();
+	}
+	//SetTimer(m_hStatic, 1, 15, NULL);
 	RECT rc;
 	GetClientRect(m_hStatic, &rc);
 	m_nX = rc.right - rc.left;
@@ -70,14 +83,15 @@ LRESULT CALLBACK CScrollingText::WndProcStatic(HWND hWnd, UINT uMsg, WPARAM wPar
 		return OnPaintProc(hWnd);
 	}
 	break;
-	case WM_TIMER:
+	/*case WM_TIMER:
 	{
 		RedrawWindow(hWnd, NULL, NULL, RDW_INVALIDATE);
 	}
-	break;
+	break;*/
 	case WM_DESTROY:
-	{
+	{		
 		CScrollingText* pST = (CScrollingText*)GetWindowLongPtr(hWnd, GWLP_USERDATA);
+		pST->m_bRunning = false;
 		if (pST)
 			delete(pST);
 		return 0;
@@ -154,38 +168,98 @@ HRESULT CScrollingText::OnPaintProc(HWND hWnd)
 					pt = D2D1::Point2F(nX, overhangOffset.y);
 				}
 				pST->m_pD2DContext->SetTransform(pTransform);
-
+				
 				if (pST->m_bShadow)
 				{
-					ID2D1BitmapRenderTarget* pCompatibleRenderTarget = nullptr;
-					D2D1_SIZE_U sizeU = D2D1::SizeU(size.width, size.height);
-					D2D1_PIXEL_FORMAT pf{ DXGI_FORMAT::DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE::D2D1_ALPHA_MODE_PREMULTIPLIED };
-					hr = pST->m_pD2DContext->CreateCompatibleRenderTarget(size, sizeU, pf, D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS::D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, &pCompatibleRenderTarget);
-					if (SUCCEEDED(hr))
+					if (pST->m_pShadowEffect == nullptr)
 					{
-						pCompatibleRenderTarget->BeginDraw();
-						pCompatibleRenderTarget->Clear(nullptr);
-						pCompatibleRenderTarget->DrawTextLayout(pt, pST->m_pTextLayout, pST->m_pMainBrush, D2D1_DRAW_TEXT_OPTIONS::D2D1_DRAW_TEXT_OPTIONS_NO_SNAP | D2D1_DRAW_TEXT_OPTIONS::D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-						hr = pCompatibleRenderTarget->EndDraw();
-						ID2D1Bitmap* pCompatibleBitmap = nullptr;
-						hr = pCompatibleRenderTarget->GetBitmap(&pCompatibleBitmap);
+						ID2D1BitmapRenderTarget* pCompatibleRenderTarget = nullptr;
+						D2D1_SIZE_U sizeU = D2D1::SizeU(size.width, size.height);
+						D2D1_PIXEL_FORMAT pf{ DXGI_FORMAT::DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE::D2D1_ALPHA_MODE_PREMULTIPLIED };
+						hr = pST->m_pD2DContext->CreateCompatibleRenderTarget(size, sizeU, pf, D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS::D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, &pCompatibleRenderTarget);
+						if (SUCCEEDED(hr))
+						{
+							pCompatibleRenderTarget->BeginDraw();
+							pCompatibleRenderTarget->Clear(nullptr);
+							pCompatibleRenderTarget->DrawTextLayout(pt, pST->m_pTextLayout, pST->m_pMainBrush, D2D1_DRAW_TEXT_OPTIONS::D2D1_DRAW_TEXT_OPTIONS_NO_SNAP | D2D1_DRAW_TEXT_OPTIONS::D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+							hr = pCompatibleRenderTarget->EndDraw();
+							ID2D1Bitmap* pCompatibleBitmap = nullptr;
+							hr = pCompatibleRenderTarget->GetBitmap(&pCompatibleBitmap);
 
-						ID2D1Effect* shadowEffect = nullptr;
-						hr = pST->m_pD2DContext->CreateEffect(CLSID_D2D1Shadow, &shadowEffect);
-						shadowEffect->SetInput(0, pCompatibleBitmap);
+							/*	ID2D1Effect* shadowEffect = nullptr;*/
+							hr = pST->m_pD2DContext->CreateEffect(CLSID_D2D1Shadow, &pST->m_pShadowEffect);
+							pST->m_pShadowEffect->SetInput(0, pCompatibleBitmap);
 
-						D2D1_RECT_F rectBackground{ 0.0f, 0.0f, size.width, size.height };
-						D2D1_SIZE_F bmpSizeBackground = pCompatibleBitmap->GetSize();
-						D2D1_RECT_F sourceRectangleBackground{ 0.0f, 0.0f, bmpSizeBackground.width, bmpSizeBackground.height };
-
-						D2D1_POINT_2F ptShadow = D2D1::Point2F(3, 3);
-						D2D1_RECT_F sourceRectangle{ 0, 0, size.width, size.height };
-						pST->m_pD2DContext->DrawImage(shadowEffect, ptShadow, sourceRectangle, D2D1_INTERPOLATION_MODE::D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE::D2D1_COMPOSITE_MODE_SOURCE_OVER);
-						SafeRelease(&shadowEffect);
-						SafeRelease(&pCompatibleBitmap);
-						SafeRelease(&pCompatibleRenderTarget);
+							//SafeRelease(&shadowEffect);
+							SafeRelease(&pCompatibleBitmap);
+							SafeRelease(&pCompatibleRenderTarget);
+						}
 					}
+					D2D1_POINT_2F ptShadow = D2D1::Point2F(3, 3);
+					D2D1_RECT_F sourceRectangle{ 0, 0, size.width, size.height };
+					pST->m_pD2DContext->DrawImage(pST->m_pShadowEffect, ptShadow, sourceRectangle, D2D1_INTERPOLATION_MODE::D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE::D2D1_COMPOSITE_MODE_SOURCE_OVER);
 				}
+
+				//	if (pST->m_pShadowImage == nullptr)
+				//	{
+				//		// Create a compatible bitmap
+				//		//ID2D1Bitmap1* tempBitmap;
+				//		//D2D1_BITMAP_PROPERTIES1 bmpProps = D2D1::BitmapProperties1(
+				//		//	D2D1_BITMAP_OPTIONS_TARGET,
+				//		//	D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+				//		//);
+				//		//hr = pST->m_pD2DContext->CreateBitmap(
+				//		//	D2D1::SizeU(size.width, size.height),
+				//		//	nullptr, 0, // No initial data, pitch 0
+				//		//	&bmpProps,
+				//		//	&tempBitmap
+				//		//);
+				
+				//		ID2D1Device* pDevice = nullptr;
+				//		pST->m_pD2DContext->GetDevice(&pDevice);
+
+				//		// Create a TEMPORARY device context
+				//		ID2D1DeviceContext* pTempContext = nullptr;
+				//		HRESULT hr2 = pDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pTempContext);
+				//		if (SUCCEEDED(hr2))
+				//		{
+				//			//  Create a CommandList IN THAT NEW CONTEXT
+				//			ID2D1CommandList* pCmdList = nullptr;
+				//			hr2 = pTempContext->CreateCommandList(&pCmdList);
+
+				//			// Draw text onto the tempBitmap
+				//			pTempContext->SetTarget(pCmdList);
+				//			pTempContext->BeginDraw();
+				//			pTempContext->Clear(nullptr);
+				//			pTempContext->DrawTextLayout(pt, pST->m_pTextLayout, pST->m_pMainBrush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+				//			pTempContext->EndDraw();
+				
+				//			//pST->m_pD2DContext->SetTarget(oldTarget);
+
+				//			pTempContext->SetTarget(nullptr);
+				//			pCmdList->Close();
+				
+				//			ID2D1Effect* shadowEffect;
+				//			hr = pST->m_pD2DContext->CreateEffect(CLSID_D2D1Shadow, &shadowEffect);
+				//			shadowEffect->SetInput(0, pCmdList);
+				//			SafeRelease(&pCmdList);
+				
+				//			shadowEffect->GetOutput(&pST->m_pShadowImage);
+
+				//			SafeRelease(&shadowEffect); 
+				//			SafeRelease(&pCmdList);
+				//			SafeRelease(&pTempContext);
+				//		}
+				//		SafeRelease(&pDevice);
+
+				//		/*SafeRelease(&oldTarget);
+				//		SafeRelease(&tempBitmap);
+				//		SafeRelease(&shadowEffect);*/
+				
+				//	}
+				//	D2D1_POINT_2F ptShadow = D2D1::Point2F(3, 3);
+				//	D2D1_RECT_F sourceRectangle{ 0, 0, size.width, size.height };
+				//	pST->m_pD2DContext->DrawImage(pST->m_pShadowImage, ptShadow, sourceRectangle, D2D1_INTERPOLATION_MODE::D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE::D2D1_COMPOSITE_MODE_SOURCE_OVER);
 
 				pST->m_pD2DContext->DrawTextLayout(pt, pST->m_pTextLayout, pST->m_pMainBrush, D2D1_DRAW_TEXT_OPTIONS::D2D1_DRAW_TEXT_OPTIONS_NO_SNAP | D2D1_DRAW_TEXT_OPTIONS::D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
 
@@ -300,6 +374,7 @@ HRESULT CScrollingText::OnPaintProc(HWND hWnd)
 			{
 				pST->m_pD2DContext->SetTarget(NULL);
 				SafeRelease(&pST->m_pD2DContext);
+				//SafeRelease(&pST->m_pShadowImage);
 				hr = pST->CreateD3D11Device();
 				hr = pST->CreateDeviceResources();
 				hr = pST->CreateSwapChain(hWnd);
@@ -429,7 +504,8 @@ HRESULT CScrollingText::CreateSwapChain(HWND hWnd)
 	swapChainDesc.BufferCount = 2; // use double buffering to enable flip
 	swapChainDesc.Scaling = (hWnd != NULL) ? DXGI_SCALING::DXGI_SCALING_NONE : DXGI_SCALING::DXGI_SCALING_STRETCH;
 	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-	swapChainDesc.Flags = 0;
+	//swapChainDesc.Flags = 0;
+	swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
 	IDXGIAdapter* pDXGIAdapter = nullptr;
 	hr = m_pDXGIDevice->GetAdapter(&pDXGIAdapter);
@@ -449,7 +525,18 @@ HRESULT CScrollingText::CreateSwapChain(HWND hWnd)
 				hr = pDXGIFactory2->CreateSwapChainForComposition(m_pD3D11Device, &swapChainDesc, nullptr, &m_pDXGISwapChain1);
 			}
 			if (SUCCEEDED(hr))
-				hr = m_pDXGIDevice->SetMaximumFrameLatency(1);
+			{
+				//hr = m_pDXGIDevice->SetMaximumFrameLatency(1);
+
+				IDXGISwapChain2* pDXGISwapChain2 = nullptr;
+				HRESULT hr = m_pDXGISwapChain1->QueryInterface(__uuidof(IDXGISwapChain2), (void**)&pDXGISwapChain2);
+				if (SUCCEEDED(hr) && pDXGISwapChain2)
+				{					
+					pDXGISwapChain2->SetMaximumFrameLatency(1);
+					m_hFrameLatencyWaitable = pDXGISwapChain2->GetFrameLatencyWaitableObject();
+					SafeRelease(&pDXGISwapChain2);					;
+				}
+			}
 			SafeRelease(&pDXGIFactory2);
 		}
 		SafeRelease(&pDXGIAdapter);
@@ -598,7 +685,4 @@ HRESULT CScrollingText::CreateD2DBitmapFromURL(LPCWSTR wsURL, ID2D1Bitmap** pD2D
 	}
 	return hr;
 }
-
-
-
 

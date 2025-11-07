@@ -9,6 +9,7 @@
 #include <d2d1_1.h>
 #include <d2d1_3.h>
 #include <dxgi1_2.h>
+#include <dxgi1_3.h> // IDXGISwapChain2
 
 #include <d2d1effects_2.h>
 
@@ -62,6 +63,9 @@ private:
 	IDWriteTextFormat* m_pTextFormat = nullptr;
 	IDWriteTextLayout* m_pTextLayout = nullptr;
 
+	//ID2D1Image* m_pShadowImage = nullptr;
+	ID2D1Effect* m_pShadowEffect = nullptr;
+
 	int m_bOrientation = 0;
 	float m_nX = 0.0F;
 	float m_nY = 0.0F;
@@ -74,6 +78,9 @@ private:
 	float m_nSpeed = 1.0F;
 	int m_nWidth = 500;
 	int m_nHeight = 500;
+
+	HANDLE m_hFrameLatencyWaitable = NULL;
+	bool m_bRunning = false;
 
 	LPCTSTR lpszClassName = L"ScrollingText";
 
@@ -96,7 +103,7 @@ public:
 		LPCWSTR sFont, int nFontSize, int nWidth, int nHeight, bool bOrientation = 0, bool bBold = false, bool bItalic = false, bool bShadow = false, bool bFade = false);
 	HRESULT SetGradientBackground(D2D1::ColorF pGradientColor1, D2D1::ColorF pGradientColor2);
 	HRESULT SetBitmapBackgroundFromURL(LPCWSTR wsURL);
-
+	
 	D2D1::ColorF GetTextColor()
 	{
 		return m_TextColor;
@@ -140,7 +147,10 @@ public:
 
 		SafeRelease(&m_pMainBrush);
 		SafeRelease(&m_pLinearGradientBrush);
-		SafeRelease(&m_pBackBitmapBrush);		
+		SafeRelease(&m_pBackBitmapBrush);
+
+		//SafeRelease(&m_pShadowImage);
+		SafeRelease(&m_pShadowEffect);
 		
 		if (m_pD2DContext)
 			m_pD2DContext->SetTarget(NULL);
